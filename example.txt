@@ -1,0 +1,136 @@
+Sub Extract_Excel_File_Info()
+    Dim basePath As String
+    Dim targetSubPath As String
+    Dim fso As Object
+    Dim baseFolder As Object
+    Dim subFolder As Object
+    Dim targetFolder As Object
+    Dim outputRow As Long
+    Dim ws As Worksheet
+    
+    ' 출력 시트 설정
+    Set ws = ThisWorkbook.ActiveSheet
+    
+    ' 기존 데이터 삭제 (필요시)
+    ws.Cells.Clear
+    
+    ' 헤더 작성
+    ws.Cells(1, 1).Value = "파일경로"
+    ws.Cells(1, 2).Value = "파일명(확장자제외)"
+    ws.Cells(1, 3).Value = "시트명"
+    
+    ' 시작 폴더 경로
+    basePath = "\\10.30.34.57\Shared\00_参照用原本\1級1種\総合オンラインシステム\設計\1_業務編\"
+    
+    ' 검색할 하위 경로
+    targetSubPath = "\01_基本設計書\05_電文\02_個別電文設計"
+    
+    ' FileSystemObject 생성
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    
+    ' 기본 경로 존재 확인
+    If Not fso.FolderExists(basePath) Then
+        MsgBox "기본 경로가 존재하지 않습니다: " & basePath, vbCritical
+        Exit Sub
+    End If
+    
+    ' 출력 행 초기화
+    outputRow = 2
+    
+    ' 기본 폴더 설정
+    Set baseFolder = fso.GetFolder(basePath)
+    
+    ' 각 업무 폴더 탐색
+    For Each subFolder In baseFolder.SubFolders
+        Dim targetPath As String
+        targetPath = subFolder.Path & targetSubPath
+        
+        ' 대상 경로가 존재하는지 확인
+        If fso.FolderExists(targetPath) Then
+            Set targetFolder = fso.GetFolder(targetPath)
+            
+            ' 엑셀 파일 처리
+            Dim file As Object
+            For Each file In targetFolder.Files
+                ' 엑셀 파일 확장자 확인
+                Dim fileExt As String
+                fileExt = LCase(fso.GetExtensionName(file.Name))
+                
+                If fileExt = "xlsx" Or fileExt = "xls" Or fileExt = "xlsm" Or fileExt = "xlsb" Then
+                    ' 엑셀 파일 정보 추출
+                    Call ProcessExcelFile(file.Path, fso.GetBaseName(file.Name), ws, outputRow)
+                End If
+            Next file
+        End If
+    Next subFolder
+    
+    ' 완료 메시지
+    MsgBox "처리 완료! 총 " & (outputRow - 2) & "건의 시트 정보를 추출했습니다.", vbInformation
+    
+    ' 열 너비 자동 조정
+    ws.Columns("A:C").AutoFit
+    
+End Sub
+
+Sub ProcessExcelFile(filePath As String, fileName As String, outputWs As Worksheet, ByRef outputRow As Long)
+    Dim excelApp As Object
+    Dim wb As Object
+    Dim sh As Object
+    Dim isNewExcel As Boolean
+    
+    On Error GoTo ErrorHandler
+    
+    ' 새 엑셀 인스턴스 생성 여부 확인
+    On Error Resume Next
+    Set excelApp = GetObject(, "Excel.Application")
+    If excelApp Is Nothing Then
+        Set excelApp = CreateObject("Excel.Application")
+        isNewExcel = True
+    Else
+        isNewExcel = False
+    End If
+    On Error GoTo ErrorHandler
+    
+    ' 백그라운드에서 실행
+    excelApp.Visible = False
+    excelApp.DisplayAlerts = False
+    
+    ' 파일 열기
+    Set wb = excelApp.Workbooks.Open(filePath, ReadOnly:=True)
+    
+    ' 각 시트 정보 추출 (숨겨진 시트 제외)
+    For Each sh In wb.Sheets
+        If sh.Visible = -1 Then ' xlSheetVisible = -1 (보이는 시트만)
+            outputWs.Cells(outputRow, 1).Value = filePath
+            outputWs.Cells(outputRow, 2).Value = fileName
+            outputWs.Cells(outputRow, 3).Value = sh.Name
+            outputRow = outputRow + 1
+        End If
+    Next sh
+    
+    ' 파일 닫기
+    wb.Close SaveChanges:=False
+    
+    ' 엑셀 인스턴스 종료 (새로 만든 경우만)
+    If isNewExcel Then
+        excelApp.Quit
+    End If
+    
+    Set sh = Nothing
+    Set wb = Nothing
+    Set excelApp = Nothing
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "파일 처리 중 오류 발생: " & filePath & vbCrLf & Err.Description, vbExclamation
+    
+    ' 정리
+    On Error Resume Next
+    If Not wb Is Nothing Then wb.Close SaveChanges:=False
+    If isNewExcel And Not excelApp Is Nothing Then excelApp.Quit
+    Set sh = Nothing
+    Set wb = Nothing
+    Set excelApp = Nothing
+    On Error GoTo 0
+End Sub
